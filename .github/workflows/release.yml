@@ -44,12 +44,16 @@ jobs:
           key: ${{ matrix.target }}
 
       # Zig supplies the cross C compiler/linker that `ring` (rustls) needs to
-      # build for musl and the non-host arch from a single x86-64 Linux runner.
-      - name: Set up Zig + cargo-zigbuild
+      # build for musl and the non-host arch from one x86-64 Linux runner.
+      # Pinned to the Zig version verified to build this project.
+      - name: Set up Zig
         if: matrix.zig
-        run: |
-          python3 -m pip install --user ziglang
-          cargo install cargo-zigbuild --locked
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Install cargo-zigbuild
+        if: matrix.zig
+        run: cargo install cargo-zigbuild --locked
 
       - name: Build (Linux, zigbuild)
         if: matrix.zig
