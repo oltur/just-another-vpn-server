@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+#
+# OpenVPN client container used by `docker compose` to drive the server
+# end-to-end. The client expects the PKI files mounted at /certs.
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openvpn iproute2 ca-certificates iputils-ping curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY docker/client-start.sh /usr/local/bin/client-start.sh
+RUN chmod +x /usr/local/bin/client-start.sh
+
+ENTRYPOINT ["/usr/local/bin/client-start.sh"]

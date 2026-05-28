@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.7
+#
+# Build the javs binary and ship it on a minimal Debian runtime image that
+# also has the `iptables` userland (needed for the NAT path).
+#
+# Build context is the repo root: `docker build -f docker/Dockerfile.server .`
+
+FROM rust:1.88-bookworm AS builder
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --bin javs && \
+    cp /build/target/release/javs /tmp/javs
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        iptables iproute2 ca-certificates iputils-ping && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /tmp/javs /usr/local/bin/javs
+ENTRYPOINT ["/usr/local/bin/javs"]
+CMD ["--config", "/etc/javs/server.toml", "--log", "info,javs=debug"]

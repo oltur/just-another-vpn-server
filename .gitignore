@@ -1,0 +1,10 @@
+# Build output
+/target
+
+# Generated PKI and pre-shared keys — never commit secrets.
+# Regenerate with scripts/generate-certs.sh and scripts/generate-psk.sh.
+/configs/pki/
+*.key
+*.pem
+ta.key
+tc.key
