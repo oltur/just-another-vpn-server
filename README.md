@@ -20,6 +20,7 @@ The binary is `javs`.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Build](#build)
+- [Deploy to Ubuntu (cross-compile from macOS)](#deploying-to-ubuntu-by-cross-compiling-from-macos)
 - [Quick start](#quick-start-5-minutes)
 - [Configuration reference](#configuration-reference)
 - [Client profiles](#client-profiles)
@@ -82,6 +83,147 @@ The binary is `javs`.
 cargo build --release
 # binary at ./target/release/javs
 ```
+
+---
+
+## Deploying to Ubuntu by cross-compiling from macOS
+
+This builds one self-contained binary on your Mac (Apple Silicon) and ships just
+that single file to the server — no Rust toolchain, no compiler, and no shared
+libraries needed on the target. We target `x86_64-unknown-linux-musl`, which
+links **statically**, so the binary runs on any x86-64 Linux regardless of its
+glibc version. The only runtime pieces it ever needs (the `tun` kernel module,
+and `iproute2` + `iptables` for NAT) already ship with Ubuntu Server.
+
+### 1. One-time setup on the Mac (M3)
+
+```bash
+# Rust std for the static Linux target
+rustup target add x86_64-unknown-linux-musl
+
+# Zig provides the cross C compiler + linker that ring (rustls) needs.
+brew install zig
+# --locked avoids pulling a transitive dep that needs a newer rustc than yours.
+cargo install cargo-zigbuild --locked
+```
+
+`cargo-zigbuild` drives cargo with `zig cc` as the cross toolchain, which is what
+makes the C/assembly bits of `ring` build cleanly from macOS to Linux.
+
+### 2. Build the static x86-64 binary
+
+```bash
+cargo zigbuild --release --target x86_64-unknown-linux-musl
+# -> target/x86_64-unknown-linux-musl/release/javs
+```
+
+Confirm it's a static x86-64 ELF (not a Mach-O):
+
+```bash
+file target/x86_64-unknown-linux-musl/release/javs
+# ELF 64-bit LSB executable, x86-64, ... statically linked, ...
+```
+
+### 3. Generate the PKI on the Mac
+
+Keep `openssl` off the server — generate everything locally and copy only what
+the server needs:
+
+```bash
+./scripts/generate-certs.sh
+./scripts/generate-psk.sh configs/pki/tc.key   # optional control-channel PSK
+```
+
+The client cert/key stay on your Mac for building client profiles; only
+`ca.crt`, `server.crt`, `server.key` (and `tc.key` if used) go to the server.
+
+### 4. Point the config at the server's paths
+
+Edit `configs/server.toml` so the PKI paths match where they'll live on the
+server, and set the public bind / tunnel options:
+
+```toml
+listen      = "0.0.0.0:1194"
+ca          = "/etc/javs/pki/ca.crt"
+cert        = "/etc/javs/pki/server.crt"
+key         = "/etc/javs/pki/server.key"
+tun_ip      = "10.8.0.1"
+tun_netmask = "255.255.255.0"
+client_pool_start = "10.8.0.2"
+client_pool_end   = "10.8.0.254"
+# full tunnel (optional):
+push_routes = ["0.0.0.0/0"]
+push_dns    = ["1.1.1.1"]
+enable_nat  = true
+```
+
+### 5. Copy the artifacts to the server
+
+```bash
+SERVER=user@your.server
+scp target/x86_64-unknown-linux-musl/release/javs "$SERVER:/tmp/javs"
+scp configs/server.toml "$SERVER:/tmp/server.toml"
+scp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key "$SERVER:/tmp/"
+# scp configs/pki/tc.key "$SERVER:/tmp/"      # if using tls-crypt
+```
+
+### 6. Install on the server (over SSH)
+
+```bash
+ssh "$SERVER"
+
+sudo install -m 0755 /tmp/javs /usr/local/bin/javs
+sudo mkdir -p /etc/javs/pki
+sudo mv /tmp/server.toml /etc/javs/server.toml
+sudo mv /tmp/ca.crt /tmp/server.crt /tmp/server.key /etc/javs/pki/
+# sudo mv /tmp/tc.key /etc/javs/pki/          # if using tls-crypt
+sudo chmod 600 /etc/javs/pki/server.key
+
+# open the port if a firewall is active
+sudo ufw allow 1194/udp
+```
+
+### 7. Run it as a service
+
+Install the systemd unit (it sets `AmbientCapabilities=CAP_NET_ADMIN`, so it
+doesn't run as full root — that one capability covers the TUN device and the
+iptables NAT rules):
+
+```bash
+sudo tee /etc/systemd/system/javs.service >/dev/null <<'EOF'
+[Unit]
+Description=just-another-vpn-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/javs --config /etc/javs/server.toml --log info
+AmbientCapabilities=CAP_NET_ADMIN
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now javs
+journalctl -u javs -f          # watch the handshake
+```
+
+### 8. Connect from a client
+
+Build a `.ovpn` profile as in [Client profiles](#client-profiles) (set
+`remote your.server 1194` and paste in `ca.crt` + `client1.crt` + `client1.key`),
+then `sudo openvpn --config client.ovpn`.
+
+> **Prefer Docker over Zig?** `cargo install cross`, then
+> `cross build --release --target x86_64-unknown-linux-musl` does the same job in
+> a container (needs Docker running).
+>
+> **`ring` won't link on musl?** Fall back to a glibc target pinned to an old
+> version — still a single file, just dynamically linked against the glibc
+> already on the server:
+> `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17`.
 
 ---
 

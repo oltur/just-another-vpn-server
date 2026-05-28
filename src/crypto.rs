@@ -124,8 +124,8 @@ mod tests {
         // Build keymat with deliberately different bytes per 64-byte slot so
         // the test catches offset bugs.
         let mut km = [0u8; KEYMAT_LEN];
-        for i in 0..KEYMAT_LEN {
-            km[i] = (i / SLOT) as u8 * 0x11 + (i % SLOT) as u8;
+        for (i, b) in km.iter_mut().enumerate() {
+            *b = (i / SLOT) as u8 * 0x11 + (i % SLOT) as u8;
         }
         let c = DataCipher::from_keymat_server(&km);
         let aad = [0u8; 8];
