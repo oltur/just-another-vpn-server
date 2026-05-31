@@ -237,25 +237,10 @@ impl VpnServer {
         let _ = self.tun_writer_tx.set(tun_writer_tx.clone());
         tokio::spawn(async move {
             while let Some(pkt) = tun_writer_rx.recv().await {
-                // Linux TUN uses a 4-byte packet-information header:
-                //   [0x00, 0x00, proto_hi, proto_lo]
-                // where proto is the EtherType (0x0800 IPv4, 0x86DD IPv6).
-                #[cfg(target_os = "linux")]
-                let buf = {
-                    let proto: [u8; 2] = if pkt.first().map(|b| b >> 4) == Some(6) {
-                        [0x86, 0xDD]
-                    } else {
-                        [0x08, 0x00]
-                    };
-                    let mut v = Vec::with_capacity(4 + pkt.len());
-                    v.extend_from_slice(&[0x00, 0x00, proto[0], proto[1]]);
-                    v.extend_from_slice(&pkt);
-                    v
-                };
-                #[cfg(not(target_os = "linux"))]
-                let buf = pkt;
-                if let Err(e) = tun_tx.write_all(&buf).await {
-                    error!("tun write failure: {e}");
+                let first4 = &pkt[..pkt.len().min(4)];
+                warn!("tun write: len={} first4={:02x?}", pkt.len(), first4);
+                if let Err(e) = tun_tx.write_all(&pkt).await {
+                    error!("tun write failure: {e} len={} first4={:02x?}", pkt.len(), first4);
                     break;
                 }
             }
@@ -501,11 +486,6 @@ impl VpnServer {
             loop {
                 match tun_rx.read(&mut buf).await {
                     Ok(n) if n > 0 => {
-                        // On Linux, strip the 4-byte PI header before
-                        // forwarding the raw IP packet to the client.
-                        #[cfg(target_os = "linux")]
-                        let pkt = if n > 4 { &buf[4..n] } else { continue };
-                        #[cfg(not(target_os = "linux"))]
                         let pkt = &buf[..n];
                         if let Err(e) =
                             forward_tun_to_client(&sessions_t, &routes_t, &routes_v6_t, pkt)
