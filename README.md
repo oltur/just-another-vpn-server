@@ -20,7 +20,7 @@ The binary is `javs`.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Build](#build)
-- [Deploy on Ubuntu from a release (recommended)](#deploy-on-ubuntu-x86-64-from-a-release)
+- [Deploy on Ubuntu from a release (recommended)](#deploy-on-ubuntu-from-a-release)
 - [Build & deploy from source (cross-compile)](#deploying-to-ubuntu-by-cross-compiling-from-macos)
 - [Quick start](#quick-start-5-minutes)
 - [Configuration reference](#configuration-reference)
@@ -87,66 +87,60 @@ cargo build --release
 
 ---
 
-## Deploy on Ubuntu (x86-64) from a release
+## Deploy on Ubuntu from a release
 
-The published releases ship a **prebuilt, statically-linked
-`x86_64-unknown-linux-musl` binary** — one self-contained file with no glibc or
-other runtime dependency, so it runs on any x86-64 Ubuntu as-is. This is the
-easiest path: nothing to compile, nothing extra to install on the server.
+The published releases ship a **prebuilt, statically-linked musl binary** — no
+compiler, no runtime dependencies needed on the server.
 
-> Want to build it yourself instead? See
-> [Build & deploy from source](#deploying-to-ubuntu-by-cross-compiling-from-macos).
+### 1. Install the server
 
-### A. Server — on the Ubuntu box, over SSH
-
-**1. Download, verify, and install the binary.**
+Run this on the Ubuntu box (SSH in first):
 
 ```bash
-REPO=oltur/just-another-vpn-server
-TAG=$(curl -fsSL https://api.github.com/repos/$REPO/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
-BASE="javs-$TAG-x86_64-unknown-linux-musl"
-
-curl -fsSL -O "https://github.com/$REPO/releases/download/$TAG/$BASE.tar.gz"
-curl -fsSL -O "https://github.com/$REPO/releases/download/$TAG/$BASE.tar.gz.sha256"
-sha256sum -c "$BASE.tar.gz.sha256"     # must print: OK
-
-tar xzf "$BASE.tar.gz"
-cd "$BASE"
-sudo install -m 0755 javs /usr/local/bin/javs
-javs --help                            # sanity check
+# Install binary + default config + systemd unit
+bash <(curl -fsSL https://raw.githubusercontent.com/oltur/just-another-vpn-server/main/scripts/server-install.sh)
 ```
 
-The tarball also unpacks `configs/` (templates) and `scripts/` (cert helpers),
-which the next steps use.
+That puts `javs` in `/usr/local/bin`, writes a default `/etc/javs/server.toml`,
+and registers `javs.service`. The service is **not** started yet.
 
-**2. Generate the PKI** (Ubuntu ships `openssl`, which the script needs):
+**Open the firewall port** if you have one:
 
 ```bash
-./scripts/generate-certs.sh
-# -> configs/pki/{ca.crt, server.crt, server.key, client1.crt, client1.key}
+sudo ufw allow 1194/udp       # if ufw is active
 ```
 
-**Optional but recommended — generate a tls-crypt pre-shared key** to encrypt the
-control channel (hides the TLS handshake from passive observers):
+Also open **UDP 1194** in your cloud firewall (AWS security group, GCP firewall
+rule, etc.) if the server sits behind one.
+
+### 2. Generate the PKI and a client profile
+
+Run this wherever `openssl` is available — your laptop or the server. Supply the
+server's public IP (or hostname):
 
 ```bash
-./scripts/generate-psk.sh configs/pki/tc.key
+# Clone or download the repo to get the scripts, then:
+./scripts/make-client.sh 203.0.113.10        # replace with your server IP
 ```
 
-**3. Install the config and server-side keys under `/etc/javs`:**
+This generates `configs/pki/` (CA + server cert + client1 cert), writes
+`client1.ovpn`, and optionally installs server keys to `/etc/javs/pki`. To
+include a tls-crypt PSK (recommended):
 
 ```bash
-sudo mkdir -p /etc/javs/pki
-sudo cp configs/server.toml /etc/javs/server.toml
-sudo cp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key /etc/javs/pki/
-sudo chmod 600 /etc/javs/pki/server.key
-
-# If you generated a tls-crypt key above, copy and secure it too:
-sudo cp configs/pki/tc.key /etc/javs/pki/
-sudo chmod 600 /etc/javs/pki/tc.key
+TLS_CRYPT=1 ./scripts/make-client.sh 203.0.113.10
 ```
 
-**4. Edit `/etc/javs/server.toml`** — point it at the keys and set your tunnel:
+To install server-side keys to the server directly (run from the server):
+
+```bash
+INSTALL_KEYS=1 ./scripts/make-client.sh 203.0.113.10
+```
+
+### 3. Edit `/etc/javs/server.toml`
+
+The default template already has the right structure. Adjust paths and options
+to match what you generated:
 
 ```toml
 listen      = "0.0.0.0:1194"
@@ -157,256 +151,94 @@ tun_ip      = "10.8.0.1"
 tun_netmask = "255.255.255.0"
 client_pool_start = "10.8.0.2"
 client_pool_end   = "10.8.0.254"
-# route all client traffic through the server (optional full tunnel):
-push_routes = ["0.0.0.0/0"]
+push_routes = ["0.0.0.0/0"]   # full tunnel; remove for split tunnel
 push_dns    = ["1.1.1.1"]
 enable_nat  = true
-# If you generated a tls-crypt key, uncomment this line:
-# tls_crypt_key = "/etc/javs/pki/tc.key"
+# tls_crypt_key = "/etc/javs/pki/tc.key"   # uncomment if you ran TLS_CRYPT=1
 ```
 
-**5. Run it as a service.** The unit grants only `CAP_NET_ADMIN` (for the TUN
-device and the NAT rules), so it doesn't run as full root:
+### 4. Start the service
 
 ```bash
-sudo tee /etc/systemd/system/javs.service >/dev/null <<'EOF'
-[Unit]
-Description=just-another-vpn-server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/local/bin/javs --config /etc/javs/server.toml --log info
-AmbientCapabilities=CAP_NET_ADMIN
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
 sudo systemctl enable --now javs
 journalctl -u javs -f          # watch it start; Ctrl-C stops the tail
 ```
 
-**6. Open the port.** UDP/1194 must be reachable:
+### 5. Connect a client
 
-```bash
-sudo ufw allow 1194/udp        # if ufw is enabled
-```
+Copy `client1.ovpn` to the client device over a secure channel (it contains the
+private key), then import it:
 
-If the box sits behind a cloud firewall (AWS security group, GCP firewall, …),
-allow inbound **UDP 1194** there too.
-
-### B. Connect a client with the OpenVPN GUI
-
-**1. Build a single-file `.ovpn` profile.** On the server (still in the extracted
-`$BASE` dir, where `configs/pki` lives), bake the CA, client cert, and client key
-into one importable file. Replace `YOUR_SERVER_IP` with the server's public address:
-
-```bash
-SERVER_IP=YOUR_SERVER_IP
-cat > client1.ovpn <<EOF
-client
-dev tun
-proto udp
-remote $SERVER_IP 1194
-remote-cert-tls server
-cipher AES-256-GCM
-data-ciphers AES-256-GCM
-auth SHA256
-tls-version-min 1.2
-resolv-retry infinite
-nobind
-persist-key
-persist-tun
-verb 3
-<ca>
-$(cat configs/pki/ca.crt)
-</ca>
-<cert>
-$(cat configs/pki/client1.crt)
-</cert>
-<key>
-$(cat configs/pki/client1.key)
-</key>
-EOF
-# if you enabled tls-crypt on the server, append the matching PSK:
-# printf '<tls-crypt>\n%s\n</tls-crypt>\n' "$(cat configs/pki/tc.key)" >> client1.ovpn
-```
-
-**2. Copy `client1.ovpn` to the client device.** It embeds the client's private
-key — move it over a secure channel only, and don't share it:
-
-```bash
-# from your laptop (the remote shell expands the glob):
-scp user@YOUR_SERVER_IP:'~/javs-*-x86_64-unknown-linux-musl/client1.ovpn' .
-```
-
-**3. Import it into the OpenVPN app.** The same file works in every GUI:
-
-- **OpenVPN Connect** (official; Windows / macOS / Linux / iOS / Android, from
-  <https://openvpn.net/client/>): open the app → **Import Profile → FILE** → drag
-  in `client1.ovpn` → toggle the profile **on** to connect.
+- **OpenVPN Connect** (Windows / macOS / Linux / iOS / Android): open the app →
+  **Import Profile → FILE** → select `client1.ovpn` → toggle **on**.
 - **Tunnelblick** (macOS): double-click `client1.ovpn` → install for "Only Me" →
-  click the menu-bar icon → **Connect client1**.
-- **OpenVPN GUI** (Windows community build): drop `client1.ovpn` into
-  `C:\Users\<you>\OpenVPN\config\`, then right-click the tray icon → **Connect**.
+  menu-bar icon → **Connect client1**.
+- **OpenVPN GUI** (Windows): drop the file into `%USERPROFILE%\OpenVPN\config\`,
+  right-click tray icon → **Connect**.
 
-**4. Verify.** The app should show **Connected** with an assigned `10.8.0.x`
-address. From the client:
+**Verify:**
 
 ```bash
-ping 10.8.0.1            # the server's tunnel IP
+ping 10.8.0.1            # server's tunnel IP from the client
+curl ifconfig.me         # should return the server's public IP (full tunnel)
 ```
 
-With a full tunnel (`push_routes = ["0.0.0.0/0"]` + `enable_nat = true`) your
-public IP should now read as the server's — check at any "what's my IP" site.
+### Adding more clients
+
+```bash
+./scripts/add-client.sh alice 203.0.113.10
+# writes alice.ovpn; distribute it to Alice
+```
+
+### Upgrading
+
+```bash
+# On the server (stops the service, swaps the binary, restarts):
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/oltur/just-another-vpn-server/main/scripts/upgrade.sh)
+
+# Or pin to a specific version:
+sudo TAG=v0.1.5 bash upgrade.sh
+```
 
 ---
 
 ## Deploying to Ubuntu by cross-compiling from macOS
 
-> **Most users want the [prebuilt release](#deploy-on-ubuntu-x86-64-from-a-release)
+> **Most users want the [prebuilt release](#deploy-on-ubuntu-from-a-release)
 > instead** — it's this same static binary, already built. This section is for
-> building it yourself from source on an Apple-Silicon Mac.
-
-This builds one self-contained binary on your Mac (Apple Silicon) and ships just
-that single file to the server — no Rust toolchain, no compiler, and no shared
-libraries needed on the target. We target `x86_64-unknown-linux-musl`, which
-links **statically**, so the binary runs on any x86-64 Linux regardless of its
-glibc version. The only runtime pieces it ever needs (the `tun` kernel module,
-and `iproute2` + `iptables` for NAT) already ship with Ubuntu Server.
-
-### 1. One-time setup on the Mac (M3)
+> building from source on an Apple-Silicon Mac.
 
 ```bash
-# Rust std for the static Linux target
+# One-time toolchain setup
 rustup target add x86_64-unknown-linux-musl
-
-# Zig provides the cross C compiler + linker that ring (rustls) needs.
 brew install zig
-# --locked avoids pulling a transitive dep that needs a newer rustc than yours.
 cargo install cargo-zigbuild --locked
-```
 
-`cargo-zigbuild` drives cargo with `zig cc` as the cross toolchain, which is what
-makes the C/assembly bits of `ring` build cleanly from macOS to Linux.
-
-### 2. Build the static x86-64 binary
-
-```bash
+# Build
 cargo zigbuild --release --target x86_64-unknown-linux-musl
 # -> target/x86_64-unknown-linux-musl/release/javs
-```
 
-Confirm it's a static x86-64 ELF (not a Mach-O):
-
-```bash
-file target/x86_64-unknown-linux-musl/release/javs
-# ELF 64-bit LSB executable, x86-64, ... statically linked, ...
-```
-
-### 3. Generate the PKI on the Mac
-
-Keep `openssl` off the server — generate everything locally and copy only what
-the server needs:
-
-```bash
+# Generate PKI on the Mac, copy binary + server keys to the server
 ./scripts/generate-certs.sh
-./scripts/generate-psk.sh configs/pki/tc.key   # optional control-channel PSK
-```
+./scripts/generate-psk.sh configs/pki/tc.key    # optional tls-crypt PSK
 
-The client cert/key stay on your Mac for building client profiles; only
-`ca.crt`, `server.crt`, `server.key` (and `tc.key` if used) go to the server.
-
-### 4. Point the config at the server's paths
-
-Edit `configs/server.toml` so the PKI paths match where they'll live on the
-server, and set the public bind / tunnel options:
-
-```toml
-listen      = "0.0.0.0:1194"
-ca          = "/etc/javs/pki/ca.crt"
-cert        = "/etc/javs/pki/server.crt"
-key         = "/etc/javs/pki/server.key"
-tun_ip      = "10.8.0.1"
-tun_netmask = "255.255.255.0"
-client_pool_start = "10.8.0.2"
-client_pool_end   = "10.8.0.254"
-# full tunnel (optional):
-push_routes = ["0.0.0.0/0"]
-push_dns    = ["1.1.1.1"]
-enable_nat  = true
-```
-
-### 5. Copy the artifacts to the server
-
-```bash
 SERVER=user@your.server
 scp target/x86_64-unknown-linux-musl/release/javs "$SERVER:/tmp/javs"
-scp configs/server.toml "$SERVER:/tmp/server.toml"
-scp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key "$SERVER:/tmp/"
-# scp configs/pki/tc.key "$SERVER:/tmp/"      # if using tls-crypt
+scp configs/pki/{ca.crt,server.crt,server.key} "$SERVER:/tmp/"
+# scp configs/pki/tc.key "$SERVER:/tmp/"
+
+# Install on the server
+ssh "$SERVER" "sudo install -m755 /tmp/javs /usr/local/bin/javs && \
+  sudo mkdir -p /etc/javs/pki && \
+  sudo mv /tmp/{ca.crt,server.crt,server.key} /etc/javs/pki/ && \
+  sudo chmod 600 /etc/javs/pki/server.key"
 ```
 
-### 6. Install on the server (over SSH)
+Then follow steps 3–5 from the release install above (edit `server.toml`, start
+the service, import the client profile).
 
-```bash
-ssh "$SERVER"
-
-sudo install -m 0755 /tmp/javs /usr/local/bin/javs
-sudo mkdir -p /etc/javs/pki
-sudo mv /tmp/server.toml /etc/javs/server.toml
-sudo mv /tmp/ca.crt /tmp/server.crt /tmp/server.key /etc/javs/pki/
-# sudo mv /tmp/tc.key /etc/javs/pki/          # if using tls-crypt
-sudo chmod 600 /etc/javs/pki/server.key
-
-# open the port if a firewall is active
-sudo ufw allow 1194/udp
-```
-
-### 7. Run it as a service
-
-Install the systemd unit (it sets `AmbientCapabilities=CAP_NET_ADMIN`, so it
-doesn't run as full root — that one capability covers the TUN device and the
-iptables NAT rules):
-
-```bash
-sudo tee /etc/systemd/system/javs.service >/dev/null <<'EOF'
-[Unit]
-Description=just-another-vpn-server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/local/bin/javs --config /etc/javs/server.toml --log info
-AmbientCapabilities=CAP_NET_ADMIN
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now javs
-journalctl -u javs -f          # watch the handshake
-```
-
-### 8. Connect from a client
-
-Build a `.ovpn` profile as in [Client profiles](#client-profiles) (set
-`remote your.server 1194` and paste in `ca.crt` + `client1.crt` + `client1.key`),
-then `sudo openvpn --config client.ovpn`.
-
-> **Prefer Docker over Zig?** `cargo install cross`, then
-> `cross build --release --target x86_64-unknown-linux-musl` does the same job in
-> a container (needs Docker running).
->
-> **`ring` won't link on musl?** Fall back to a glibc target pinned to an old
-> version — still a single file, just dynamically linked against the glibc
-> already on the server:
-> `cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17`.
+> **Prefer Docker over Zig?** `cargo install cross` then
+> `cross build --release --target x86_64-unknown-linux-musl`.
 
 ---
 
@@ -769,8 +601,12 @@ configs/
 ├── server.toml        # annotated example server config
 └── client.ovpn        # client profile template
 scripts/
-├── generate-certs.sh  # CA + server + client certs (OpenSSL)
-└── generate-psk.sh    # tls-auth / tls-crypt static key
+├── server-install.sh  # install binary + config + systemd unit from a release
+├── make-client.sh     # generate PKI + first client .ovpn profile
+├── add-client.sh      # add another client to an existing PKI
+├── upgrade.sh         # upgrade the binary on the server
+├── generate-certs.sh  # low-level: CA + server + client certs (OpenSSL)
+└── generate-psk.sh    # low-level: tls-auth / tls-crypt static key
 docker/                # end-to-end test harness (see above)
 ```
 

@@ -243,7 +243,10 @@ impl VpnServer {
                 match pkt.first().map(|b| b >> 4) {
                     Some(4) | Some(6) => {}
                     other => {
-                        trace!("dropping non-IP data-channel packet: version={other:?} len={}", pkt.len());
+                        trace!(
+                            "dropping non-IP data-channel packet: version={other:?} len={}",
+                            pkt.len()
+                        );
                         continue;
                     }
                 }
@@ -496,8 +499,7 @@ impl VpnServer {
                     Ok(n) if n > 0 => {
                         let pkt = &buf[..n];
                         if let Err(e) =
-                            forward_tun_to_client(&sessions_t, &routes_t, &routes_v6_t, pkt)
-                                .await
+                            forward_tun_to_client(&sessions_t, &routes_t, &routes_v6_t, pkt).await
                         {
                             trace!("tun->client: {e}");
                         }
