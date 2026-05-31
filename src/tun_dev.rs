@@ -15,7 +15,7 @@ pub async fn create(name: &str, ip: IpAddr, netmask: IpAddr, mtu: u16) -> Result
         .up();
 
     #[cfg(target_os = "linux")]
-    config.platform(|p| {
+    config.platform_config(|p| {
         p.packet_information(false);
     });
 
