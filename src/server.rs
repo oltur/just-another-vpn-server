@@ -237,10 +237,18 @@ impl VpnServer {
         let _ = self.tun_writer_tx.set(tun_writer_tx.clone());
         tokio::spawn(async move {
             while let Some(pkt) = tun_writer_rx.recv().await {
-                let first4 = &pkt[..pkt.len().min(4)];
-                warn!("tun write: len={} first4={:02x?}", pkt.len(), first4);
+                // Drop non-IP packets that OpenVPN Connect sends via the
+                // data channel (e.g. internal control messages). Writing them
+                // to a TUN device returns EINVAL and kills the writer.
+                match pkt.first().map(|b| b >> 4) {
+                    Some(4) | Some(6) => {}
+                    other => {
+                        trace!("dropping non-IP data-channel packet: version={other:?} len={}", pkt.len());
+                        continue;
+                    }
+                }
                 if let Err(e) = tun_tx.write_all(&pkt).await {
-                    error!("tun write failure: {e} len={} first4={:02x?}", pkt.len(), first4);
+                    error!("tun write failure: {e}");
                     break;
                 }
             }
