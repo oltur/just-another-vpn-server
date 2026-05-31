@@ -1220,10 +1220,19 @@ fn build_push_reply(
             client6, cfg.tun_prefix6, server6
         ));
     }
+    let mut redirect_gateway = false;
     for r in cfg.push_routes.iter().chain(extra_routes.iter()) {
-        if let Some((net, mask)) = cidr_to_route(r) {
+        if r == "0.0.0.0/0" {
+            redirect_gateway = true;
+        } else if let Some((net, mask)) = cidr_to_route(r) {
             s.push_str(&format!(",route {} {}", net, mask));
         }
+    }
+    // Use redirect-gateway def1 instead of route 0.0.0.0 0.0.0.0. The def1
+    // variant adds 0.0.0.0/1 + 128.0.0.0/1 which override the existing default
+    // route without needing to delete it — required for OpenVPN Connect on macOS.
+    if redirect_gateway {
+        s.push_str(",redirect-gateway def1 bypass-dhcp");
     }
     for r in &cfg.push_routes_v6 {
         s.push_str(&format!(",route-ipv6 {}", r));
