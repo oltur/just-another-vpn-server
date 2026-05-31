@@ -8,3 +8,5 @@
 *.pem
 ta.key
 tc.key
+.DS_Store
+*.ovpn
