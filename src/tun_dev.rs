@@ -14,10 +14,9 @@ pub async fn create(name: &str, ip: IpAddr, netmask: IpAddr, mtu: u16) -> Result
         .mtu(mtu)
         .up();
 
-    #[cfg(target_os = "linux")]
-    config.platform_config(|p| {
-        p.packet_information(false);
-    });
+    // Keep PI enabled (the default) and handle the 4-byte header in the
+    // read/write paths. Disabling PI via IFF_NO_PI is unreliable across
+    // tun crate versions on Linux and causes EINVAL on write.
 
     let dev = tun::create_as_async(&config).context("create tun")?;
     Ok(dev)
