@@ -20,7 +20,8 @@ The binary is `javs`.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Build](#build)
-- [Deploy to Ubuntu (cross-compile from macOS)](#deploying-to-ubuntu-by-cross-compiling-from-macos)
+- [Deploy on Ubuntu from a release (recommended)](#deploy-on-ubuntu-x86-64-from-a-release)
+- [Build & deploy from source (cross-compile)](#deploying-to-ubuntu-by-cross-compiling-from-macos)
 - [Quick start](#quick-start-5-minutes)
 - [Configuration reference](#configuration-reference)
 - [Client profiles](#client-profiles)
@@ -86,7 +87,181 @@ cargo build --release
 
 ---
 
+## Deploy on Ubuntu (x86-64) from a release
+
+The published releases ship a **prebuilt, statically-linked
+`x86_64-unknown-linux-musl` binary** — one self-contained file with no glibc or
+other runtime dependency, so it runs on any x86-64 Ubuntu as-is. This is the
+easiest path: nothing to compile, nothing extra to install on the server.
+
+> Want to build it yourself instead? See
+> [Build & deploy from source](#deploying-to-ubuntu-by-cross-compiling-from-macos).
+
+### A. Server — on the Ubuntu box, over SSH
+
+**1. Download, verify, and install the binary.**
+
+```bash
+REPO=oltur/just-another-vpn-server
+TAG=$(curl -fsSL https://api.github.com/repos/$REPO/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+')
+BASE="javs-$TAG-x86_64-unknown-linux-musl"
+
+curl -fsSL -O "https://github.com/$REPO/releases/download/$TAG/$BASE.tar.gz"
+curl -fsSL -O "https://github.com/$REPO/releases/download/$TAG/$BASE.tar.gz.sha256"
+sha256sum -c "$BASE.tar.gz.sha256"     # must print: OK
+
+tar xzf "$BASE.tar.gz"
+cd "$BASE"
+sudo install -m 0755 javs /usr/local/bin/javs
+javs --help                            # sanity check
+```
+
+The tarball also unpacks `configs/` (templates) and `scripts/` (cert helpers),
+which the next steps use.
+
+**2. Generate the PKI** (Ubuntu ships `openssl`, which the script needs):
+
+```bash
+./scripts/generate-certs.sh
+# -> configs/pki/{ca.crt, server.crt, server.key, client1.crt, client1.key}
+
+# optional but recommended — a tls-crypt pre-shared key:
+./scripts/generate-psk.sh configs/pki/tc.key
+```
+
+**3. Install the config and server-side keys under `/etc/javs`:**
+
+```bash
+sudo mkdir -p /etc/javs/pki
+sudo cp configs/server.toml /etc/javs/server.toml
+sudo cp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key /etc/javs/pki/
+# sudo cp configs/pki/tc.key /etc/javs/pki/        # if you made a PSK
+sudo chmod 600 /etc/javs/pki/server.key
+```
+
+**4. Edit `/etc/javs/server.toml`** — point it at the keys and set your tunnel:
+
+```toml
+listen      = "0.0.0.0:1194"
+ca          = "/etc/javs/pki/ca.crt"
+cert        = "/etc/javs/pki/server.crt"
+key         = "/etc/javs/pki/server.key"
+tun_ip      = "10.8.0.1"
+tun_netmask = "255.255.255.0"
+client_pool_start = "10.8.0.2"
+client_pool_end   = "10.8.0.254"
+# route all client traffic through the server (optional full tunnel):
+push_routes = ["0.0.0.0/0"]
+push_dns    = ["1.1.1.1"]
+enable_nat  = true
+# tls_crypt_key = "/etc/javs/pki/tc.key"           # if you made a PSK
+```
+
+**5. Run it as a service.** The unit grants only `CAP_NET_ADMIN` (for the TUN
+device and the NAT rules), so it doesn't run as full root:
+
+```bash
+sudo tee /etc/systemd/system/javs.service >/dev/null <<'EOF'
+[Unit]
+Description=just-another-vpn-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/javs --config /etc/javs/server.toml --log info
+AmbientCapabilities=CAP_NET_ADMIN
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now javs
+journalctl -u javs -f          # watch it start; Ctrl-C stops the tail
+```
+
+**6. Open the port.** UDP/1194 must be reachable:
+
+```bash
+sudo ufw allow 1194/udp        # if ufw is enabled
+```
+
+If the box sits behind a cloud firewall (AWS security group, GCP firewall, …),
+allow inbound **UDP 1194** there too.
+
+### B. Connect a client with the OpenVPN GUI
+
+**1. Build a single-file `.ovpn` profile.** On the server (still in the extracted
+`$BASE` dir, where `configs/pki` lives), bake the CA, client cert, and client key
+into one importable file. Replace `YOUR_SERVER_IP` with the server's public address:
+
+```bash
+SERVER_IP=YOUR_SERVER_IP
+cat > client1.ovpn <<EOF
+client
+dev tun
+proto udp
+remote $SERVER_IP 1194
+remote-cert-tls server
+cipher AES-256-GCM
+data-ciphers AES-256-GCM
+auth SHA256
+tls-version-min 1.2
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+verb 3
+<ca>
+$(cat configs/pki/ca.crt)
+</ca>
+<cert>
+$(cat configs/pki/client1.crt)
+</cert>
+<key>
+$(cat configs/pki/client1.key)
+</key>
+EOF
+# if you enabled tls-crypt on the server, append the matching PSK:
+# printf '<tls-crypt>\n%s\n</tls-crypt>\n' "$(cat configs/pki/tc.key)" >> client1.ovpn
+```
+
+**2. Copy `client1.ovpn` to the client device.** It embeds the client's private
+key — move it over a secure channel only, and don't share it:
+
+```bash
+# from your laptop (the remote shell expands the glob):
+scp user@YOUR_SERVER_IP:'~/javs-*-x86_64-unknown-linux-musl/client1.ovpn' .
+```
+
+**3. Import it into the OpenVPN app.** The same file works in every GUI:
+
+- **OpenVPN Connect** (official; Windows / macOS / Linux / iOS / Android, from
+  <https://openvpn.net/client/>): open the app → **Import Profile → FILE** → drag
+  in `client1.ovpn` → toggle the profile **on** to connect.
+- **Tunnelblick** (macOS): double-click `client1.ovpn` → install for "Only Me" →
+  click the menu-bar icon → **Connect client1**.
+- **OpenVPN GUI** (Windows community build): drop `client1.ovpn` into
+  `C:\Users\<you>\OpenVPN\config\`, then right-click the tray icon → **Connect**.
+
+**4. Verify.** The app should show **Connected** with an assigned `10.8.0.x`
+address. From the client:
+
+```bash
+ping 10.8.0.1            # the server's tunnel IP
+```
+
+With a full tunnel (`push_routes = ["0.0.0.0/0"]` + `enable_nat = true`) your
+public IP should now read as the server's — check at any "what's my IP" site.
+
+---
+
 ## Deploying to Ubuntu by cross-compiling from macOS
+
+> **Most users want the [prebuilt release](#deploy-on-ubuntu-x86-64-from-a-release)
+> instead** — it's this same static binary, already built. This section is for
+> building it yourself from source on an Apple-Silicon Mac.
 
 This builds one self-contained binary on your Mac (Apple Silicon) and ships just
 that single file to the server — no Rust toolchain, no compiler, and no shared
