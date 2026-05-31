@@ -8,10 +8,10 @@ use tun::AsyncDevice;
 pub async fn create(name: &str, ip: IpAddr, netmask: IpAddr, mtu: u16) -> Result<AsyncDevice> {
     let mut config = tun::Configuration::default();
     config
-        .name(name)
+        .tun_name(name)
         .address(ip)
         .netmask(netmask)
-        .mtu(mtu as i32)
+        .mtu(mtu)
         .up();
 
     #[cfg(target_os = "linux")]

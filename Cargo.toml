@@ -35,7 +35,7 @@ sha1 = "0.10"
 md-5 = "0.10"
 
 # TUN device
-tun = { version = "0.6", features = ["async"] }
+tun = { version = "0.7", features = ["async"] }
 
 # Networking helpers
 bytes = "1"

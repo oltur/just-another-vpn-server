@@ -124,8 +124,12 @@ which the next steps use.
 ```bash
 ./scripts/generate-certs.sh
 # -> configs/pki/{ca.crt, server.crt, server.key, client1.crt, client1.key}
+```
 
-# optional but recommended — a tls-crypt pre-shared key:
+**Optional but recommended — generate a tls-crypt pre-shared key** to encrypt the
+control channel (hides the TLS handshake from passive observers):
+
+```bash
 ./scripts/generate-psk.sh configs/pki/tc.key
 ```
 
@@ -135,8 +139,11 @@ which the next steps use.
 sudo mkdir -p /etc/javs/pki
 sudo cp configs/server.toml /etc/javs/server.toml
 sudo cp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key /etc/javs/pki/
-# sudo cp configs/pki/tc.key /etc/javs/pki/        # if you made a PSK
 sudo chmod 600 /etc/javs/pki/server.key
+
+# If you generated a tls-crypt key above, copy and secure it too:
+sudo cp configs/pki/tc.key /etc/javs/pki/
+sudo chmod 600 /etc/javs/pki/tc.key
 ```
 
 **4. Edit `/etc/javs/server.toml`** — point it at the keys and set your tunnel:
@@ -154,7 +161,8 @@ client_pool_end   = "10.8.0.254"
 push_routes = ["0.0.0.0/0"]
 push_dns    = ["1.1.1.1"]
 enable_nat  = true
-# tls_crypt_key = "/etc/javs/pki/tc.key"           # if you made a PSK
+# If you generated a tls-crypt key, uncomment this line:
+# tls_crypt_key = "/etc/javs/pki/tc.key"
 ```
 
 **5. Run it as a service.** The unit grants only `CAP_NET_ADMIN` (for the TUN
