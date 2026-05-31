@@ -18,11 +18,15 @@ mkdir -p "$PKI_DIR"
 cd "$PKI_DIR"
 
 genkey() {
-  local out="$1"
+  local out="$1" pass="${2:-}"
+  local pass_args=()
+  if [[ -n "$pass" ]]; then
+    pass_args=(-aes-256-cbc -pass "pass:$pass")
+  fi
   if [[ "$KEY_ALG" == "ED25519" ]]; then
-    openssl genpkey -algorithm ED25519 -out "$out"
+    openssl genpkey -algorithm ED25519 "${pass_args[@]}" -out "$out"
   else
-    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$out"
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 "${pass_args[@]}" -out "$out"
   fi
 }
 
@@ -48,8 +52,11 @@ openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
 
 # --- Client ---
 echo ">>> generating client cert ($CN_CLIENT)"
-genkey "${CN_CLIENT}.key"
-openssl req -new -key "${CN_CLIENT}.key" -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
+_client_pass="${CLIENT_KEY_PASS:-}"
+genkey "${CN_CLIENT}.key" "$_client_pass"
+_passin_args=()
+[[ -n "$_client_pass" ]] && _passin_args=(-passin "pass:$_client_pass")
+openssl req -new -key "${CN_CLIENT}.key" "${_passin_args[@]}" -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
 cat > client.ext <<EOF
 basicConstraints = CA:FALSE
 keyUsage = digitalSignature

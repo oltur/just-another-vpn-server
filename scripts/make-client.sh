@@ -28,6 +28,20 @@ INSTALL_KEYS="${INSTALL_KEYS:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Prompt for an optional passphrase to encrypt the client private key.
+if [[ -z "${CLIENT_KEY_PASS+x}" ]]; then
+    read -r -s -p "Client key passphrase (leave empty for no encryption): " CLIENT_KEY_PASS
+    echo
+    if [[ -n "$CLIENT_KEY_PASS" ]]; then
+        read -r -s -p "Confirm passphrase: " _confirm
+        echo
+        if [[ "$CLIENT_KEY_PASS" != "$_confirm" ]]; then
+            echo "Passphrases do not match." >&2; exit 1
+        fi
+    fi
+fi
+export CLIENT_KEY_PASS
+
 # Generate CA + server + client cert if not already present.
 PKI_DIR="$PKI_DIR" CN_CLIENT="$CN_CLIENT" "$SCRIPT_DIR/generate-certs.sh"
 

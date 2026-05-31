@@ -38,15 +38,33 @@ fi
 
 cd "$PKI_DIR"
 
-echo "==> Generating client cert for $CN_CLIENT"
-
-if [[ "$KEY_ALG" == "ED25519" ]]; then
-    openssl genpkey -algorithm ED25519 -out "${CN_CLIENT}.key"
-else
-    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${CN_CLIENT}.key"
+# Prompt for an optional passphrase to encrypt the client private key.
+if [[ -z "${CLIENT_KEY_PASS+x}" ]]; then
+    read -r -s -p "Client key passphrase (leave empty for no encryption): " CLIENT_KEY_PASS
+    echo
+    if [[ -n "$CLIENT_KEY_PASS" ]]; then
+        read -r -s -p "Confirm passphrase: " _confirm
+        echo
+        if [[ "$CLIENT_KEY_PASS" != "$_confirm" ]]; then
+            echo "Passphrases do not match." >&2; exit 1
+        fi
+    fi
 fi
 
-openssl req -new -key "${CN_CLIENT}.key" -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
+echo "==> Generating client cert for $CN_CLIENT"
+
+PASS_ARGS=()
+[[ -n "$CLIENT_KEY_PASS" ]] && PASS_ARGS=(-aes-256-cbc -pass "pass:$CLIENT_KEY_PASS")
+
+if [[ "$KEY_ALG" == "ED25519" ]]; then
+    openssl genpkey -algorithm ED25519 "${PASS_ARGS[@]}" -out "${CN_CLIENT}.key"
+else
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 "${PASS_ARGS[@]}" -out "${CN_CLIENT}.key"
+fi
+
+PASSIN_ARGS=()
+[[ -n "$CLIENT_KEY_PASS" ]] && PASSIN_ARGS=(-passin "pass:$CLIENT_KEY_PASS")
+openssl req -new -key "${CN_CLIENT}.key" "${PASSIN_ARGS[@]}" -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
 
 cat > client.ext <<EOF
 basicConstraints = CA:FALSE
