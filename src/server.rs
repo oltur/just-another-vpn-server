@@ -1158,10 +1158,21 @@ impl VpnServer {
     /// decryption here.
     fn route_data(&self, pkt: &[u8]) {
         let Ok(dp) = DataPacketV2::parse(pkt) else {
+            // P_DATA_V1 or malformed — log the opcode so we can tell which.
+            if !pkt.is_empty() {
+                let op = pkt[0] >> 3;
+                trace!("route_data: parse failed (op={op:#x} len={})", pkt.len());
+            }
             return;
         };
         if let Some(route) = self.data_routes.get(&dp.peer_id) {
             let _ = route.send(pkt.to_vec());
+        } else {
+            let known: Vec<u32> = self.data_routes.iter().map(|e| *e.key()).collect();
+            trace!(
+                "route_data: no session for peer_id={} key_id={} (known={:?})",
+                dp.peer_id, dp.key_id, known
+            );
         }
     }
 
