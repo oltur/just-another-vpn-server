@@ -53,6 +53,39 @@ pub fn enable_masquerade(
         set_ip_forward(true).context("enable net.ipv4.ip_forward")?;
     }
 
+    // Remove any stale rules from a previous run before adding fresh ones.
+    // Uses -D (delete) which exits non-zero if the rule doesn't exist — that's
+    // fine, so we ignore errors here.
+    let _ = iptables_run(&[
+        "-t",
+        "nat",
+        "-D",
+        "POSTROUTING",
+        "-s",
+        &cidr,
+        "-o",
+        wan_iface,
+        "-j",
+        "MASQUERADE",
+    ]);
+    let _ = iptables_run(&[
+        "-D", "FORWARD", "-i", tun_iface, "-o", wan_iface, "-j", "ACCEPT",
+    ]);
+    let _ = iptables_run(&[
+        "-D",
+        "FORWARD",
+        "-i",
+        wan_iface,
+        "-o",
+        tun_iface,
+        "-m",
+        "state",
+        "--state",
+        "RELATED,ESTABLISHED",
+        "-j",
+        "ACCEPT",
+    ]);
+
     iptables_run(&[
         "-t",
         "nat",
