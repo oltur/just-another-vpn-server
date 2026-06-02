@@ -10,3 +10,4 @@ ta.key
 tc.key
 .DS_Store
 *.ovpn
+configs/pki-bak/
