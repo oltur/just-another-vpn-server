@@ -57,14 +57,14 @@ PASS_ARGS=()
 [[ -n "$CLIENT_KEY_PASS" ]] && PASS_ARGS=(-aes-256-cbc -pass "pass:$CLIENT_KEY_PASS")
 
 if [[ "$KEY_ALG" == "ED25519" ]]; then
-    openssl genpkey -algorithm ED25519 "${PASS_ARGS[@]}" -out "${CN_CLIENT}.key"
+    openssl genpkey -algorithm ED25519 ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} -out "${CN_CLIENT}.key"
 else
     openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 "${PASS_ARGS[@]}" -out "${CN_CLIENT}.key"
 fi
 
 PASSIN_ARGS=()
 [[ -n "$CLIENT_KEY_PASS" ]] && PASSIN_ARGS=(-passin "pass:$CLIENT_KEY_PASS")
-openssl req -new -key "${CN_CLIENT}.key" "${PASSIN_ARGS[@]}" -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
+openssl req -new -key "${CN_CLIENT}.key" ${PASSIN_ARGS[@]+"${PASSIN_ARGS[@]}"} -subj "/CN=${CN_CLIENT}" -out "${CN_CLIENT}.csr"
 
 cat > client.ext <<EOF
 basicConstraints = CA:FALSE
