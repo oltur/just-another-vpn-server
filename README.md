@@ -115,26 +115,34 @@ rule, etc.) if the server sits behind one.
 
 ### 2. Generate the PKI and a client profile
 
-Run this wherever `openssl` is available — your laptop or the server. Supply the
-server's public IP (or hostname):
+Run this on your **laptop** (or wherever `openssl` is available). Supply the
+server's public IP or hostname:
 
 ```bash
-# Clone or download the repo to get the scripts, then:
-./scripts/make-client.sh 203.0.113.10        # replace with your server IP
+TLS_CRYPT=1 ./scripts/make-client.sh 203.0.113.10   # replace with your server IP
 ```
 
-This generates `configs/pki/` (CA + server cert + client1 cert), writes
-`client1.ovpn`, and optionally installs server keys to `/etc/javs/pki`. To
-include a tls-crypt PSK (recommended):
+This creates `configs/pki/` (CA + server cert + client cert + tls-crypt key)
+and writes `client1.ovpn` in the current directory.
+
+**Copy the server-side keys to the server:**
 
 ```bash
-TLS_CRYPT=1 ./scripts/make-client.sh 203.0.113.10
+SERVER=user@203.0.113.10   # replace with your SSH target
+
+ssh $SERVER "sudo mkdir -p /etc/javs/pki"
+scp configs/pki/ca.crt configs/pki/server.crt configs/pki/server.key \
+    configs/pki/tc.key \
+    $SERVER:/tmp/
+ssh $SERVER "sudo mv /tmp/{ca.crt,server.crt,server.key,tc.key} /etc/javs/pki/ && \
+             sudo chmod 600 /etc/javs/pki/server.key /etc/javs/pki/tc.key"
 ```
 
-To install server-side keys to the server directly (run from the server):
+If you are running the script **directly on the server** instead, add `INSTALL_KEYS=1`
+and it copies the keys for you:
 
 ```bash
-INSTALL_KEYS=1 ./scripts/make-client.sh 203.0.113.10
+TLS_CRYPT=1 INSTALL_KEYS=1 ./scripts/make-client.sh 203.0.113.10
 ```
 
 ### 3. Edit `/etc/javs/server.toml`
@@ -154,7 +162,7 @@ client_pool_end   = "10.8.0.254"
 push_routes = ["0.0.0.0/0"]   # full tunnel; remove for split tunnel
 push_dns    = ["1.1.1.1"]
 enable_nat  = true
-# tls_crypt_key = "/etc/javs/pki/tc.key"   # uncomment if you ran TLS_CRYPT=1
+tls_crypt_key = "/etc/javs/pki/tc.key"     # required if you used TLS_CRYPT=1
 ```
 
 ### 4. Start the service
