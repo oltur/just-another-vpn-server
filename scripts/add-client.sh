@@ -98,6 +98,8 @@ nobind
 persist-key
 persist-tun
 verb 3
+# Keep VPN control traffic on the physical interface when full-tunnel is active.
+route $SERVER_IP 255.255.255.255 net_gateway
 <ca>
 $(cat "$PKI_DIR/ca.crt")
 </ca>

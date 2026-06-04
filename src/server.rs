@@ -1241,11 +1241,16 @@ fn build_push_reply(
             s.push_str(&format!(",route {} {}", net, mask));
         }
     }
-    // Use redirect-gateway def1 instead of route 0.0.0.0 0.0.0.0. The def1
-    // variant adds 0.0.0.0/1 + 128.0.0.0/1 which override the existing default
-    // route without needing to delete it — required for OpenVPN Connect on macOS.
+    // Push explicit half-default routes instead of redirect-gateway.
+    // redirect-gateway def1 causes OpenVPN Connect on macOS to add a bypass
+    // host route for the VPN gateway (10.8.0.1) via the physical interface,
+    // which makes the /1 routes also resolve via the physical interface and
+    // breaks all internet traffic through the tunnel. Explicit route pushes
+    // do not trigger that bypass, so the /1 routes correctly resolve through
+    // the VPN subnet route on the tun interface.
     if redirect_gateway {
-        s.push_str(",redirect-gateway def1 bypass-dhcp");
+        s.push_str(",route 0.0.0.0 128.0.0.0");
+        s.push_str(",route 128.0.0.0 128.0.0.0");
     }
     for r in &cfg.push_routes_v6 {
         s.push_str(&format!(",route-ipv6 {}", r));
