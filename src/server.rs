@@ -1217,15 +1217,22 @@ fn build_push_reply(
     peer_id: u32,
     extra_routes: &[String],
 ) -> Vec<u8> {
+    let tun_gw = netmask_of(cfg.tun_ip); // server TUN IPv4 (e.g. 10.8.0.1)
+    let netmask = netmask_of(cfg.tun_netmask); // e.g. 255.255.255.0
+    let tun_network = Ipv4Addr::from(u32::from(tun_gw) & u32::from(netmask)); // e.g. 10.8.0.0
+
     let mut s = String::new();
     s.push_str("PUSH_REPLY");
-    s.push_str(&format!(
-        ",ifconfig {} {}",
-        client_ip,
-        netmask_of(cfg.tun_netmask)
-    ));
-    s.push_str(",topology subnet");
-    s.push_str(&format!(",route-gateway {}", cfg.tun_ip));
+    // Use P2P-style ifconfig (client_ip peer_ip) instead of subnet-style
+    // (client_ip netmask).  With subnet-style + route-gateway, OpenVPN Connect
+    // on macOS adds a bypass host route for the route-gateway address (10.8.0.1)
+    // via the physical interface, which makes the pushed /1 routes also resolve
+    // through the physical interface and breaks internet forwarding.  In P2P
+    // mode the peer (10.8.0.1) is reachable via the tun interface directly, so
+    // the /1 routes resolve correctly through the tunnel.
+    s.push_str(&format!(",ifconfig {} {}", client_ip, tun_gw));
+    // Push the VPN subnet explicitly so clients can reach other tunnel IPs.
+    s.push_str(&format!(",route {} {}", tun_network, netmask));
     // IPv6 ifconfig + routes (only when configured).
     if let (Some(IpAddr::V6(server6)), Some(client6)) = (cfg.tun_ip6, client_ip6) {
         s.push_str(&format!(
