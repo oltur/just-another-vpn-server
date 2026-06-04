@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
     };
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    info!("javs {} starting", env!("CARGO_PKG_VERSION"));
     info!("loading config from {}", args.config.display());
     let cfg = ServerConfig::load(&args.config)?;
 
