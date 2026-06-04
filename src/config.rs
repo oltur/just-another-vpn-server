@@ -143,7 +143,7 @@ fn default_keepalive_ping() -> u32 {
     10
 }
 fn default_keepalive_timeout() -> u32 {
-    60
+    120
 }
 fn default_tls_auth_direction() -> u8 {
     1
