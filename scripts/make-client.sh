@@ -23,7 +23,7 @@ set -euo pipefail
 SERVER_IP="${1:?Usage: $0 <server-public-ip> [client-cn]}"
 CN_CLIENT="${2:-client1}"
 PKI_DIR="${PKI_DIR:-configs/pki}"
-TLS_CRYPT="${TLS_CRYPT:-0}"
+TLS_CRYPT="${TLS_CRYPT:-1}"
 INSTALL_KEYS="${INSTALL_KEYS:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
