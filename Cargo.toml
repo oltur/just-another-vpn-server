@@ -17,7 +17,7 @@ clap = { version = "4", features = ["derive"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = "2"
 rustls-pki-types = "1"
-rustls-webpki = "0.102"
+rustls-webpki = "0.103"
 # Parses the peer cert after the rustls handshake so we can log / route by CN.
 x509-parser = "0.16"
 
