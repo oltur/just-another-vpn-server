@@ -1,5 +1,11 @@
 # just-another-vpn-server (javs)
 
+[![CI](https://github.com/oltur/just-another-vpn-server/actions/workflows/ci.yml/badge.svg)](https://github.com/oltur/just-another-vpn-server/actions/workflows/ci.yml)
+[![Security audit](https://github.com/oltur/just-another-vpn-server/actions/workflows/audit.yml/badge.svg)](https://github.com/oltur/just-another-vpn-server/actions/workflows/audit.yml)
+[![Latest release](https://img.shields.io/github/v/release/oltur/just-another-vpn-server?sort=semver)](https://github.com/oltur/just-another-vpn-server/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/oltur/just-another-vpn-server)](LICENSE)
+[![Rust edition 2024](https://img.shields.io/badge/rust-2024_edition-orange)](Cargo.toml)
+
 An OpenVPN-protocol-compatible VPN server written in Rust. It speaks enough of
 the OpenVPN 2.6 wire protocol that a **stock `openvpn` client connects to it
 unmodified** — TLS-authenticated control channel, AES-256-GCM data channel,
@@ -37,6 +43,8 @@ The binary is `javs`.
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
+- [Security](#security)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -662,6 +670,22 @@ by the Docker harness.
 
 ---
 
+## Security
+
+Not security-audited; see [Limitations](#limitations). To report a
+vulnerability, please follow [SECURITY.md](SECURITY.md) instead of opening a
+public issue.
+
+---
+
+## Contributing
+
+Bug reports and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for
+the dev workflow (`cargo fmt`, `cargo clippy`, `cargo test`, `./docker/test.sh`)
+and what CI checks on every PR.
+
+---
+
 ## License
 
-MIT.
+MIT, see [LICENSE](LICENSE).

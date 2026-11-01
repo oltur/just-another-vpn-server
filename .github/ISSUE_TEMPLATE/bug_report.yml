@@ -1,0 +1,73 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a security vulnerability? Please use [SECURITY.md](https://github.com/oltur/just-another-vpn-server/blob/main/SECURITY.md) instead of filing a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: javs version
+      description: Output of `javs --version`, or the release tag / commit you built.
+      placeholder: v0.1.8
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Server OS
+      options:
+        - Linux (glibc)
+        - Linux (musl)
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Client used
+      placeholder: OpenVPN 2.6.14 CLI / OpenVPN Connect / Tunnelblick / NetworkManager ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: server.toml (redact IPs/secrets)
+      render: toml
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Run the server with `--log info,javs=debug` (or `verb 4` on the client) and paste the relevant lines.
+      render: shell

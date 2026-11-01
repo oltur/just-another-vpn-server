@@ -31,3 +31,13 @@ jobs:
 
       - name: Tests
         run: cargo test
+
+  shellcheck:
+    name: shellcheck (scripts/, docker/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: "."
